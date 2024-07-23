@@ -6,4 +6,6 @@ import com.example.pottisbingo.model.Member
 
 class MainScreenViewModel : ViewModel() {
     val member = mutableStateOf<Member?>(null)
+    val roomId = mutableStateOf<String?>(null)
+    val isCreator = mutableStateOf<Boolean>(false)
 }

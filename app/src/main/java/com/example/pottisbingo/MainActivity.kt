@@ -23,7 +23,6 @@ const val TAG = "Gamebb"
 
 class MainActivity : ComponentActivity(), FirebaseAuth.AuthStateListener {
     private lateinit var navHostController: NavHostController
-    var member: Member? = null
     private lateinit var viewModel: MainScreenViewModel
     private val signInLauncher = registerForActivityResult(
         FirebaseAuthUIActivityResultContract()
@@ -73,9 +72,8 @@ class MainActivity : ComponentActivity(), FirebaseAuth.AuthStateListener {
                 .child(firebaseUser.uid)
                 .addValueEventListener(object : ValueEventListener {
                     override fun onDataChange(snapshot: DataSnapshot) {
-                        member = snapshot.getValue(Member::class.java)
-                        member?.uid = firebaseUser.uid
-                        viewModel.member.value = member
+                        viewModel.member.value = snapshot.getValue(Member::class.java)
+                        viewModel.member.value?.uid = firebaseUser.uid
                     }
 
                     override fun onCancelled(error: DatabaseError) {

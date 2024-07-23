@@ -34,13 +34,19 @@ import androidx.constraintlayout.compose.ConstraintLayout
 import androidx.constraintlayout.compose.ConstraintSet
 import com.example.pottisbingo.R
 import com.example.pottisbingo.TAG
+import com.example.pottisbingo.model.GameRoom
 import com.example.pottisbingo.model.Member
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
 
 
 @Composable
-fun MainScreen(modifier: Modifier = Modifier, viewModel: MainScreenViewModel) {
+fun MainScreen(
+    viewModel: MainScreenViewModel,
+    onNavigateToGame: () -> Unit,
+) {
     val shouldShowDialog = remember {
         mutableStateOf(viewModel.member.value?.nickName.isNullOrEmpty())
     }
@@ -53,25 +59,20 @@ fun MainScreen(modifier: Modifier = Modifier, viewModel: MainScreenViewModel) {
     }
 
     val avatarIds = intArrayOf(
-        R.drawable.avatar_0,
-        R.drawable.avatar_1,
-        R.drawable.avatar_2,
-        R.drawable.avatar_3,
-        R.drawable.avatar_4,
-        R.drawable.avatar_5,
-        R.drawable.avatar_6
+        R.drawable.avatar_0, R.drawable.avatar_1, R.drawable.avatar_2, R.drawable.avatar_3, R.drawable.avatar_4, R.drawable.avatar_5, R.drawable.avatar_6
     )
     BoxWithConstraints {
         ConstraintLayout(modifier = Modifier.fillMaxSize(), constraintSet = constraints()) {
-            // avatar
+            /** Current avatar icon */
             val avatarIconActionState = remember { mutableStateOf(false) }
-            Image(
-                modifier = Modifier
-                    .clickable { avatarIconActionState.value = !avatarIconActionState.value }
-                    .size(40.dp)
-                    .layoutId("avatarIcon"), painter = painterResource(id = avatarIds[viewModel.member.value?.avatarId ?: 0]), contentDescription = ""
-            )
+            Image(modifier = Modifier
+                .clickable { avatarIconActionState.value = !avatarIconActionState.value }
+                .size(40.dp)
+                .layoutId("avatarIcon"),
+                painter = painterResource(id = avatarIds[viewModel.member.value?.avatarId ?: 0]),
+                contentDescription = "")
             if (avatarIconActionState.value) {
+                /** Avatar icons row */
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -94,17 +95,16 @@ fun MainScreen(modifier: Modifier = Modifier, viewModel: MainScreenViewModel) {
                 }
             }
 
-            // nick name
+            /** Nick name text */
             Text(
                 modifier = Modifier
                     .layoutId("nickNameText")
                     .clickable { shouldShowDialog.value = true }, fontSize = 30.sp, text = viewModel.member.value?.nickName.toString()
             )
 
-            // floating action button
+            /** Floating action buttons */
             val floatingActionState = remember { mutableStateOf(false) }
-            FloatingActionButton(modifier = Modifier.layoutId("floatingActionButton"), onClick = { floatingActionState.value = !floatingActionState.value })
-            {
+            FloatingActionButton(modifier = Modifier.layoutId("floatingActionButton"), onClick = { floatingActionState.value = !floatingActionState.value }) {
                 if (floatingActionState.value) {
                     Icon(Icons.Filled.KeyboardArrowUp, "Floating action button.")
                 } else {
@@ -112,22 +112,35 @@ fun MainScreen(modifier: Modifier = Modifier, viewModel: MainScreenViewModel) {
                 }
             }
             if (floatingActionState.value) {
+                /** Sign out button */
                 FloatingActionButton(modifier = Modifier
                     .layoutId("signOutButton")
-                    .width(100.dp), onClick = { FirebaseAuth.getInstance().signOut() })
-                {
+                    .width(100.dp), onClick = { FirebaseAuth.getInstance().signOut() }) {
                     Text(text = "SignOut")
                 }
+
+                /** Game list button*/
+                val createActionState = remember { mutableStateOf(false) }
                 FloatingActionButton(modifier = Modifier
                     .layoutId("newGameButton")
-                    .width(100.dp), onClick = { /*TODO: new game navigate*/ })
-                {
+                    .width(100.dp), onClick = { createActionState.value = true }) {
                     Text(text = "New Game")
+                }
+                if (createActionState.value) {
+                    RoomCreateDialog(member = viewModel.member.value, {
+                        createActionState.value = false
+                    }, {
+                        viewModel.roomId.value = it.first
+                        viewModel.isCreator.value = it.second
+                        createActionState.value = false
+                        onNavigateToGame()
+                    })
                 }
             }
         }
     }
 }
+
 
 private fun constraints() = ConstraintSet {
     val floatingActionButton = createRefFor("floatingActionButton")
@@ -164,31 +177,52 @@ private fun constraints() = ConstraintSet {
 }
 
 @Composable
+fun RoomCreateDialog(
+    member: Member?,
+    onCancelRequest: () -> Unit,
+    onConfirmRequest: (Pair<String?, Boolean>) -> Unit,
+) {
+    var roomName by remember { mutableStateOf("${member?.nickName}'s Room") }
+    AlertDialog(title = { Text(text = "Room Name") }, text = {
+        OutlinedTextField(value = roomName, onValueChange = { roomName = it }, maxLines = 1)
+    }, onDismissRequest = {}, confirmButton = {
+        TextButton(onClick = {
+            val room = GameRoom(title = roomName, init = member)
+            FirebaseDatabase.getInstance().getReference("rooms").push().setValue(room, object : DatabaseReference.CompletionListener {
+                override fun onComplete(error: DatabaseError?, databaseReference: DatabaseReference) {
+                    val roomId = databaseReference.key
+                    FirebaseDatabase.getInstance().getReference("rooms").child(roomId.toString()).child("id").setValue(roomId)
+
+                    onConfirmRequest(Pair(roomId, true))
+                }
+            })
+
+        }) {
+            Text(text = "Confirm")
+        }
+    }, dismissButton = {
+        TextButton(onClick = { onCancelRequest() }) {
+            Text("Cancel")
+        }
+    })
+}
+
+@Composable
 fun NickNameDialog(
     member: Member?,
     onConfirmRequest: (Pair<String, Boolean>) -> Unit,
 ) {
     var nickName by remember { mutableStateOf(member?.nickName ?: "") }
-    AlertDialog(
-        title = { Text(text = "NickName") },
-        text = {
-            OutlinedTextField(value = nickName, onValueChange = { nickName = it }, maxLines = 1)
-        },
-        onDismissRequest = {
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                member?.let {
-                    FirebaseDatabase.getInstance()
-                        .getReference("users")
-                        .child(it.uid)
-                        .child("nickName")
-                        .setValue(nickName)
-                }
-                onConfirmRequest(Pair(nickName, false))
-            }) {
-                Text(text = "Confirm")
+    AlertDialog(title = { Text(text = "NickName") }, text = {
+        OutlinedTextField(value = nickName, onValueChange = { nickName = it }, maxLines = 1)
+    }, onDismissRequest = {}, confirmButton = {
+        TextButton(onClick = {
+            member?.let {
+                FirebaseDatabase.getInstance().getReference("users").child(it.uid).child("nickName").setValue(nickName)
             }
+            onConfirmRequest(Pair(nickName, false))
+        }) {
+            Text(text = "Confirm")
         }
-    )
+    })
 }
