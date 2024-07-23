@@ -5,10 +5,12 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import com.example.pottisbingo.model.Member
 import com.example.pottisbingo.navigation.GameNavHost
+import com.example.pottisbingo.ui.screens.MainScreenViewModel
 import com.firebase.ui.auth.AuthUI
 import com.firebase.ui.auth.FirebaseAuthUIActivityResultContract
 import com.google.firebase.auth.FirebaseAuth
@@ -17,22 +19,27 @@ import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
 
-private const val TAG = "Gamebb"
+const val TAG = "Gamebb"
 
 class MainActivity : ComponentActivity(), FirebaseAuth.AuthStateListener {
     private lateinit var navHostController: NavHostController
     var member: Member? = null
-    val signInLauncher = registerForActivityResult(
+    private lateinit var viewModel: MainScreenViewModel
+    private val signInLauncher = registerForActivityResult(
         FirebaseAuthUIActivityResultContract()
     ) { result ->
         Log.d(TAG, "AuthUI result: $result")
     }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        viewModel = ViewModelProvider(this)[MainScreenViewModel::class.java]
         setContent {
-            navHostController = rememberNavController()
-            GameNavHost(navHostController = navHostController)
+            viewModel.member.value?.let {
+                navHostController = rememberNavController()
+                GameNavHost(navHostController = navHostController, viewModel = viewModel)
+            }
         }
     }
 
@@ -47,13 +54,13 @@ class MainActivity : ComponentActivity(), FirebaseAuth.AuthStateListener {
     }
 
     override fun onAuthStateChanged(auth: FirebaseAuth) {
-        auth.currentUser?.also {
-            Log.d(TAG, "currentUser: ${it.uid}")
-            Log.d(TAG, "currentUser: ${it.displayName}")
-            it.displayName?.run {
+        auth.currentUser?.also { firebaseUser ->
+            Log.d(TAG, "currentUser: ${firebaseUser.uid}")
+            Log.d(TAG, "currentUser: ${firebaseUser.displayName}")
+            firebaseUser.displayName?.run {
                 FirebaseDatabase.getInstance()
                     .getReference("users")
-                    .child(it.uid)
+                    .child(firebaseUser.uid)
                     .child("displayName")
                     .setValue(this)
                     .addOnCompleteListener {
@@ -63,13 +70,12 @@ class MainActivity : ComponentActivity(), FirebaseAuth.AuthStateListener {
 
             // Member listening
             FirebaseDatabase.getInstance().getReference("users")
-                .child(it.uid)
+                .child(firebaseUser.uid)
                 .addValueEventListener(object : ValueEventListener {
                     override fun onDataChange(snapshot: DataSnapshot) {
                         member = snapshot.getValue(Member::class.java)
-                        member?.uid = it.uid
-                        // nickname
-                        // avatar
+                        member?.uid = firebaseUser.uid
+                        viewModel.member.value = member
                     }
 
                     override fun onCancelled(error: DatabaseError) {
