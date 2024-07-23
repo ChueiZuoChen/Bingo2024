@@ -1,49 +1,92 @@
 package com.example.pottisbingo
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Constraints
-import com.example.pottisbingo.ui.theme.PottisBingoTheme
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.rememberNavController
+import com.example.pottisbingo.model.Member
+import com.example.pottisbingo.navigation.GameNavHost
+import com.firebase.ui.auth.AuthUI
+import com.firebase.ui.auth.FirebaseAuthUIActivityResultContract
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
 
-class MainActivity : ComponentActivity() {
+private const val TAG = "Gamebb"
+
+class MainActivity : ComponentActivity(), FirebaseAuth.AuthStateListener {
+    private lateinit var navHostController: NavHostController
+    var member: Member? = null
+    val signInLauncher = registerForActivityResult(
+        FirebaseAuthUIActivityResultContract()
+    ) { result ->
+        Log.d(TAG, "AuthUI result: $result")
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            PottisBingoTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
-                    )
-                }
-            }
+            navHostController = rememberNavController()
+            GameNavHost(navHostController = navHostController)
         }
     }
-}
 
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
+    override fun onStart() {
+        super.onStart()
+        FirebaseAuth.getInstance().addAuthStateListener(this)
+    }
 
+    override fun onStop() {
+        super.onStop()
+        FirebaseAuth.getInstance().removeAuthStateListener(this)
+    }
 
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    PottisBingoTheme {
-        Greeting("Android")
+    override fun onAuthStateChanged(auth: FirebaseAuth) {
+        auth.currentUser?.also {
+            Log.d(TAG, "currentUser: ${it.uid}")
+            Log.d(TAG, "currentUser: ${it.displayName}")
+            it.displayName?.run {
+                FirebaseDatabase.getInstance()
+                    .getReference("users")
+                    .child(it.uid)
+                    .child("displayName")
+                    .setValue(this)
+                    .addOnCompleteListener {
+                        Log.d(TAG, "done")
+                    }
+            }
+
+            // Member listening
+            FirebaseDatabase.getInstance().getReference("users")
+                .child(it.uid)
+                .addValueEventListener(object : ValueEventListener {
+                    override fun onDataChange(snapshot: DataSnapshot) {
+                        member = snapshot.getValue(Member::class.java)
+                        member?.uid = it.uid
+                        // nickname
+                        // avatar
+                    }
+
+                    override fun onCancelled(error: DatabaseError) {
+                    }
+                })
+        } ?: run {
+            val providers = arrayListOf(
+                AuthUI.IdpConfig.EmailBuilder().build(),
+                AuthUI.IdpConfig.GoogleBuilder().build()
+            )
+
+            val signInIntent = AuthUI.getInstance()
+                .createSignInIntentBuilder()
+                .setAvailableProviders(providers)
+                .setIsSmartLockEnabled(false)
+                .build()
+            signInLauncher.launch(signInIntent)
+        }
     }
 }
